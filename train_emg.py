@@ -5,14 +5,15 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 
-from data_utils import load_emg_glove_windows, EMGGloveDataset
+from data_utils import load_all_emg_glove_windows, EMGGloveDataset
 from tcn_model import Learner
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #  Load data
-Xs, Ys, fs = load_emg_glove_windows("datas/P02.mat", win_sec=1.0, step_sec=0.5)
+# Xs, Ys, fs = load_emg_glove_windows("datas/*.mat", win_sec=1.0, step_sec=0.5)
+Xs, Ys, fs = load_all_emg_glove_windows("datas", win_sec=1.0, step_sec=0.5)
 
 eps = 1e-8
 # Xs shape assumed (N, C, T)
@@ -50,7 +51,7 @@ test_loader  = DataLoader(EMGGloveDataset(X_test, y_test), batch_size=256, shuff
 #  Model config
 N_C = 2
 input_size = X_train.shape[1]
-output_size = y_train.shape[1]
+output_size = y_train.shape[2]  # number of glove channels, not sequence length
 
 num_channels = [64] * 8
 Dil = [[1,1],[2,2],[4,4],[8,8],[16,16],[32,32],[64,64],[128,128]]
@@ -80,13 +81,16 @@ model.reg_head = nn.Sequential(
 xb, yb = next(iter(train_loader))
 xb, yb = xb.to(device), yb.to(device)
 with torch.no_grad():
-    tokens = model(xb)
-    print("tokens", tokens.shape)  # expect (B, T, D)
-    # pred = model.reg_head(tokens.mean(dim=1))
-    win_feat = tokens[:, -1, :]
-    pred = model.reg_head(win_feat)
+    tokens = model(xb)                 # (B, T, D)
+    pred_seq = model.reg_head(tokens)  # (B, T, glove_channels)
 
-    print("pred", pred.shape, "yb", yb.shape)  # expect (B,out) matches yb
+    print("tokens", tokens.shape)
+    print("pred_seq", pred_seq.shape, "yb", yb.shape)
+
+    if pred_seq.shape != yb.shape:
+        raise RuntimeError(
+            f"Prediction/target shape mismatch: pred={pred_seq.shape}, target={yb.shape}"
+        )
 
 # Train helpers
 # def eval_mse(model, loader, loss_fn):

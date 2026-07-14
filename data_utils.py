@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from scipy.io import loadmat
+from pathlib import Path
 
 
 def ensure_LC(x):
@@ -46,6 +47,52 @@ def load_emg_glove_windows(mat_path, win_sec=1.0, step_sec=0.5, lag_sec=0.0):
     Xs = np.transpose(Xs, (0, 2, 1))               # (N, C_emg, T)
 
     return Xs, Ys, fs
+
+def load_all_emg_glove_windows(data_dir="datas", win_sec=1.0, step_sec=0.5, lag_sec=0.0):
+    """Load and concatenate windows from every .mat file in a directory."""
+    mat_files = sorted(Path(data_dir).glob("*.mat"))
+
+    if not mat_files:
+        raise FileNotFoundError(f"No .mat files found in: {Path(data_dir).resolve()}")
+
+    all_X, all_Y = [], []
+    expected_fs = None
+    expected_x_shape = None
+    expected_y_shape = None
+
+    for mat_path in mat_files:
+        X, Y, fs = load_emg_glove_windows(
+            mat_path,
+            win_sec=win_sec,
+            step_sec=step_sec,
+            lag_sec=lag_sec,
+        )
+
+        if expected_fs is None:
+            expected_fs = fs
+            expected_x_shape = X.shape[1:]
+            expected_y_shape = Y.shape[1:]
+        else:
+            if fs != expected_fs:
+                raise ValueError(
+                    f"Sampling-frequency mismatch: {mat_path.name} uses {fs} Hz, "
+                    f"expected {expected_fs} Hz."
+                )
+            if X.shape[1:] != expected_x_shape or Y.shape[1:] != expected_y_shape:
+                raise ValueError(
+                    f"Shape mismatch in {mat_path.name}: X{X.shape[1:]}, Y{Y.shape[1:]}; "
+                    f"expected X{expected_x_shape}, Y{expected_y_shape}."
+                )
+
+        all_X.append(X)
+        all_Y.append(Y)
+        print(f"Loaded {mat_path.name}: {len(X)} windows")
+
+    Xs = np.concatenate(all_X, axis=0)
+    Ys = np.concatenate(all_Y, axis=0)
+    print(f"Loaded {len(mat_files)} files and {len(Xs)} total windows")
+
+    return Xs, Ys, expected_fs
 
 
 class EMGGloveDataset(Dataset):
